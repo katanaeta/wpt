@@ -537,6 +537,18 @@ class VirtualAuthenticatorProtocolPart(ProtocolPart):
         pass
 
 
+class SPCTransactionsProtocolPart(ProtocolPart):
+    """Protocol part for dealing with Secure Payment Confirmation transaction"""
+    __metaclass__ = ABCMeta
+
+    name = "spc_transactions"
+
+    @abstractmethod
+    def set_spc_transaction_mode(self, mode):
+        """Set the SPC transaction mode"""
+        pass
+
+
 class PrintProtocolPart(ProtocolPart):
     """Protocol part for rendering to a PDF."""
     __metaclass__ = ABCMeta

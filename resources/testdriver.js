@@ -455,6 +455,14 @@
             const blocked = state === "blocked";
             return window.test_driver_internal.set_storage_access(origin, embedding_origin, blocked, context);
         },
+
+        /**
+         * Instructs the user agent how to treat future Secure Payment Confirmation
+         * transaction UXes. TODO: Describe better.
+         */
+        set_spc_transaction_mode: function(mode, context=null) {
+          return window.test_driver_internal.set_spc_transaction_mode(mode, context);
+        },
     };
 
     window.test_driver_internal = {
@@ -560,5 +568,10 @@
         set_storage_access: function(origin, embedding_origin, blocked, context=null) {
             return Promise.reject(new Error("unimplemented"));
         },
+
+        set_spc_transaction_mode: function(mode, context=null) {
+            return Promise.reject(new Error("unimplemented"));
+        },
+
     };
 })();
