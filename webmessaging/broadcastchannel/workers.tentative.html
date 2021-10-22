@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<meta charset=utf-8>
+<script src="/resources/testharness.js"></script>
+<script src="/resources/testharnessreport.js"></script>
+<script>
+
+async_test(t => {
+  function workerCode() {
+    close();
+    try {
+      var bc = new BroadcastChannel("worker-create-after-close");
+    } catch(e) {
+      postMessage(e);
+      return;
+    }
+    postMessage(true);
+  }
+
+  var workerBlob = new Blob([workerCode.toString() + ";workerCode();"], {type:"application/javascript"});
+
+  var w = new Worker(URL.createObjectURL(workerBlob));
+  w.onmessage = t.step_func_done(function(e) {
+    assert_equals(e.data, true, "BroadcastChannel creation in closed worker triggered exception: " + e.data.message);
+  });
+}, "BroadcastChannel created after a worker self.close()");
+
+
+const CLOSE_BEFORE_CREATE_WORKER_NAME = "close-before-create-worker";
+const CLOSE_AFTER_CREATE_WORKER_NAME = "close-after-create-worker";
+const DONE_WORKER_NAME = "done-worker";
+
+function postMessageFromWorkerWorkerCode(workerName, channelName) {
+  if (workerName === "close-before-create-worker") {
+    close();
+  }
+  let bc = new BroadcastChannel(channelName);
+  if (workerName === "close-after-create-worker") {
+    close();
+  }
+  bc.postMessage(workerName + " done");
+}
+
+function doPostMessageFromWorkerTest(t, workerName, channelName) {
+  var bc = new BroadcastChannel(channelName);
+  bc.onmessage = t.step_func_done(function(e) {
+    assert_equals(e.data, DONE_WORKER_NAME + " done", "BroadcastChannel message should only be received from the second worker");
+  });
+  t.add_cleanup(() => bc.close());
+
+  createWorker(postMessageFromWorkerWorkerCode, workerName, channelName);
+
+  // To avoid calling t.step_timeout, instantiate another worker that performs
+  // the same test steps but doesn't close. By the time the BroadcastChannel
+  // message in that worker gets sent successfully it should be safe to assume
+  // that any BroadcastChannel messages from the previous worker would have
+  // been sent if they were going to be.
+  var w = createWorker(postMessageFromWorkerWorkerCode, DONE_WORKER_NAME, channelName);
+  t.add_cleanup(() => w.terminate());
+}
+
+function createWorker(workerCode, workerName, channelName, handler=null) {
+  var workerCodeStr = workerCode.toString() +
+                      `;${workerCode.name}("${workerName}", "${channelName}");`;
+  var workerBlob = new Blob([workerCodeStr], {type:"application/javascript"});
+  var w = new Worker(URL.createObjectURL(workerBlob));
+  if (handler !== null) {
+    w.onmessage = handler;
+  }
+  return w;
+}
+
+async_test(t => {
+  const workerName = CLOSE_AFTER_CREATE_WORKER_NAME;
+  const channelName = workerName + "-postmessage-from-worker";
+  doPostMessageFromWorkerTest(t, workerName, channelName);
+}, "BroadcastChannel messages from closed worker to parent should be ignored (BC created before closing)");
+
+async_test(t => {
+  const workerName = CLOSE_BEFORE_CREATE_WORKER_NAME;
+  const channelName = workerName + "-postmessage-from-worker";
+  doPostMessageFromWorkerTest(t, workerName, channelName);
+}, "BroadcastChannel messages from closed worker to parent should be ignored (BC created after closing)");
+
+
+function postMessageToWorkerWorkerCode(workerName, channelName) {
+  if (workerName === "close-before-create-worker") {
+    close();
+  }
+  try {
+    let bc = new BroadcastChannel(channelName);
+    bc.onmessage = e => {postMessage(workerName + " done")};
+    if (workerName === "close-after-create-worker") {
+      close();
+    }
+    postMessage(true);
+  } catch (e) {
+    postMessage(e);
+  }
+}
+
+function doPostMessageToWorkerTest(t, workerName, channelName) {
+  var bc = new BroadcastChannel(channelName);
+  t.add_cleanup(() => bc.close());
+
+  var testMessageHandler = t.step_func(function(e) {
+    assert_equals(e.data, true, "BroadcastChannel sent postMessage indicating it's BroadcastChannel instance is ready");
+    bc.postMessage(true);
+  });
+  createWorker(postMessageToWorkerWorkerCode, workerName, channelName, testMessageHandler);
+
+  var doneMessageHandler = t.step_func(function(e) {
+    if (e.data === true) {
+      bc.postMessage(true);
+    } else if (e.data === DONE_WORKER_NAME + " done") {
+      t.done();
+    } else {
+      assert_unreached("BroadcastChannel.postMessage triggered exception within second worker: " + e.data.message);
+    }
+  });
+  var w = createWorker(postMessageToWorkerWorkerCode, DONE_WORKER_NAME, channelName, doneMessageHandler);
+  t.add_cleanup(() => w.terminate());
+}
+
+async_test(t => {
+  const workerName = CLOSE_AFTER_CREATE_WORKER_NAME;
+  const channelName = workerName + "-postmessage-to-worker";
+  doPostMessageToWorkerTest(t, workerName, channelName);
+}, "BroadcastChannel messages from parent to closed worker should be ignored (BC created before closing)");
+
+async_test(t => {
+  const workerName = CLOSE_BEFORE_CREATE_WORKER_NAME;
+  const channelName = workerName + "-postmessage-to-worker";
+  doPostMessageToWorkerTest(t, workerName, channelName);
+}, "BroadcastChannel messages from parent to closed worker should be ignored (BC created after closing)");
+
+
+function postMessageWithinWorkerWorkerCode(workerName, channelName) {
+  if (workerName === "close-before-create-worker") {
+    close();
+  }
+  try {
+    let bc1 = new BroadcastChannel(channelName);
+    let bc2 = new BroadcastChannel(channelName);
+    bc1.onmessage = e => {postMessage(workerName + " done")};
+    if (workerName === "close-after-create-worker") {
+        close();
+    }
+    bc2.postMessage(true);
+  } catch (e) {
+    postMessage(e);
+  }
+}
+
+function doPostMessageWithinWorkerTest(t, workerName, channelName) {
+  var testMessageHandler = t.unreached_func("BroadcastChannel message handler triggered or exception was raised");
+  createWorker(postMessageWithinWorkerWorkerCode, workerName, channelName, testMessageHandler);
+
+  var doneMessageHandler = t.step_func(function(e) {
+    if (e.data === DONE_WORKER_NAME + " done") {
+      t.done();
+    } else {
+      assert_unreached("BroadcastChannel.postMessage triggered exception within second worker: " + e.data.message);
+    }
+  });
+  var w = createWorker(postMessageWithinWorkerWorkerCode, DONE_WORKER_NAME, channelName, doneMessageHandler);
+  t.add_cleanup(() => w.terminate());
+}
+
+async_test(t => {
+  const workerName = "close-after-create-worker";
+  const channelName = workerName + "-postmessage-within-worker";
+  doPostMessageWithinWorkerTest(t, workerName, channelName);
+}, "BroadcastChannel messages within closed worker should be ignored (BCs created before closing)");
+
+async_test(t => {
+  const workerName = "close-before-create-worker";
+  const channelName = workerName + "-postmessage-within-worker";
+  doPostMessageWithinWorkerTest(t, workerName, channelName);
+}, "BroadcastChannel messages within closed worker should be ignored (BCs created after closing)");
+
+</script>
